@@ -2,10 +2,10 @@
 An Arduino-based weather station using an OLED display and multiple sensors
 
 Information shown and sensors used:
- * - time and date (DS1307)
- * - temperature (DHT22)
- * - barometric pressure, altitude, relative humidity (BMP05)
- * - weather forecast, based on pressure and temperature data variance collected over the last few hours
+ * time and date (DS1307)
+ * temperature (DHT22)
+ * barometric pressure, altitude, relative humidity (BMP05)
+ * weather forecast, based on pressure and temperature data variance collected over the last few hours
  
  Everything is shown on a generic OLED 0.96" display.
  
