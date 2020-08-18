@@ -1,38 +1,38 @@
 /********
- * Estacao meteorologica
- * - hora (DS1307)
- * - temperatura (DHT22)
- * - pressão barométrica, altitude, umidade relativa (BMP05)
- * - previsao do tempo, baseado nos dados de pressão e temperatura
- * - display OLED 1"
- * 
- *  Conexões (Arduino Nano):
- *  
- *  DHT22: 
- *    OUT = D2
- *    Vcc = 5V
- *    GND = GND
- *    
- *  BMP05: 
- *    Vin = 3.3v
- *    GND = GND
- *    SCL = A5
- *    SDA = A4
- *    
- *  DS1307:
- *    Vcc = 5V
- *    GND = GND
- *    SCL = A5
- *    SDA = A4
- *    
- *  Display OLED:
- *    GND = GND
- *    Vcc = 5V
- *    SCL = D13
- *    SDA = D11
- *    RST = D8
- *    D/C = D9
- *    
+   Estacao meteorologica
+   - hora (DS1307)
+   - temperatura (DHT22)
+   - pressão barométrica, altitude, umidade relativa (BMP05)
+   - previsao do tempo, baseado nos dados de pressão e temperatura
+   - display OLED 1"
+
+    Conexões (Arduino Nano):
+
+    DHT22:
+      OUT = D2
+      Vcc = 5V
+      GND = GND
+
+    BMP05:
+      Vin = 3.3v
+      GND = GND
+      SCL = A5
+      SDA = A4
+
+    DS1307:
+      Vcc = 5V
+      GND = GND
+      SCL = A5
+      SDA = A4
+
+    Display OLED:
+      GND = GND
+      Vcc = 5V
+      SCL = D13
+      SDA = D11
+      RST = D8
+      D/C = D9
+
  *****/
 
 #include <Wire.h>
@@ -53,7 +53,6 @@ Adafruit_BMP085 bmp;
 U8GLIB_SSD1306_128X64 u8g(OLED_SCL, OLED_DC, OLED_RESET);
 
 RTC_DS1307 rtc;
-//RTC_Millis rtc;
 DateTime now;
 
 // variaveis para previsão de tempo
@@ -65,7 +64,7 @@ double dP_dt;
 unsigned long startTime;
 
 const char *weather[] = {
-  "tempo est" "\xe1" "vel", "previs" "\xe3" "o: SOL", "previs" "\xe3" "o: NUBLADO", "tempo inst" "\xe1" "avel", "previs" "\xe3" "o: CHUVA", "coletando dados"
+  "estavel", "SOL", "NUBLADO", "instavel", "CHUVA", "--------"
 };
 int forecast = 5;
 
@@ -74,10 +73,15 @@ String temp2 = "";
 String pressure = "";
 String alt = "";
 String hum = "";
+int currentPage = 0;
+
+String line1 = "";
+String line2 = "";
+String line3 = "";
 
 void setup() {
   // terminal serial para debug
-  Serial.begin(9600);
+  //Serial.begin(9600);
 
   // inicializa comunicacao I2C
   Wire.begin();
@@ -85,13 +89,12 @@ void setup() {
   // inicializa os sensores
   dht.begin();
   if (!bmp.begin()) {
-    Serial.println("Nao foi possivel achar o sensor BMP180!");
+    //Serial.println("Nao foi possivel achar o sensor BMP180!");
     while (1) {}
   }
   // inicializa RTC
   rtc.begin();
-  //rtc.begin(DateTime(F(__DATE__), F(__TIME__)));
-  //rtc.adjust(DateTime(2016, 1, 31, 00, 18, 00));
+  rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
 
   // timer para previsao
   startTime =  -1;
@@ -121,53 +124,72 @@ void loop() {
   // atualiza a tela
   u8g.firstPage();
   do {
-    draw();
-  } while ( u8g.nextPage() );
+
+    draw(currentPage);
+
+  } while ( u8g.nextPage());
+  currentPage++;
+  if (currentPage == 3)
+    currentPage = 0;
 
   // calcula a previsao atual e reseta o timer geral
   if (IsTimeout())
   {
-    Serial.println("Iniciando cálculo de previsão com pressão = " + pressure);
     forecast = calculateForecast((double) pressure.toFloat());
     startTime = millis();
-    Serial.println("nova previsao:" + (String) weather[forecast]);
+    //Serial.println("nova previsao:" + (String) weather[forecast]);
   }
-  delay(1000);
+
+  delay(3000);
 
 }
 
-void draw()
+void draw(int page)
 {
-  // frame
-  u8g.drawRFrame(1, 10, 127, 42, 1);
-
   // cabecalho
   u8g.setFont(u8g_font_fixed_v0);
   u8g.setFontPosTop();
-  String tm = getTime() + "     " + getDate();
+  String tm = getTime();
   u8g.drawStr(1, 1, tm.c_str());
 
-  // rodapé (mesma fonte)
-  String t = temp1 + "\xb0" "C" + "/" + temp2 + "\xb0" "C";
-  u8g.drawStr(1, 55, t.c_str());
-  u8g.drawStr(128 - u8g.getStrWidth(getDay().c_str()), 53, getDay().c_str());
+  switch (page) {
+    case 0:
+      // temperatura (média dos dois sensores)
+      line1 =  "t " + (String) ((temp1.toFloat() + temp2.toFloat()) / 2) + "\xb0" "C";
 
-  // area de dados
-  u8g.setFont(u8g_font_tpssb);
-  u8g.setFontPosTop();
+      // sensação térmica
+      line2 = "s " + heatIndex(((temp1.toFloat() + temp2.toFloat()) / 2), hum.toFloat());
 
-  String px = (String) (pressure.toFloat() / 133.32239);
-  px.remove(px.length() - 1);
-  String p = alt + "m " + px + "mmHg";;
+      // umidade relativa
+      line3 = "h " + hum + "%";
+      break;
 
-  u8g.drawStr(3, 12, p.c_str());
+    case 1:
+      // altitude
+      line2 = "a " + alt + " m ";
 
-  // ponto de orvalho: " orv " + (String) dewPointFast(((temp1.toFloat() + temp2.toFloat()) / 2), hum.toFloat()) + "\xb0""C";
-  String h = hum + "%rh" + " real " + heatIndex(((temp1.toFloat() + temp2.toFloat()) / 2), hum.toFloat());
-  u8g.drawStr(3, 24, h.c_str());
+      // ponto de orvalho
+      line3 = ("o " + (String) dewPointFast(((temp1.toFloat() + temp2.toFloat()) / 2), hum.toFloat()) + "\xb0""C");
+      break;
 
-  String f = weather[forecast];
-  u8g.drawStr((128 - u8g.getStrWidth(weather[forecast])) / 2, 36, f.c_str());
+    case 2:
+      // pressão atmosférica
+      String px = (String) (pressure.toFloat() / 133.32239);
+      px.remove(px.length() - 1);
+      line2 = "p " + px + "mmHg";
+
+      // previsão de tempo para as próximas 12h
+      line3 = "12H " + (String) weather[forecast];
+
+      break;
+  }
+  
+  // desenha as strings
+  u8g.setFont(u8g_font_courR14);
+  u8g.drawStr(1, 26, line1.c_str());
+  u8g.drawStr(1, 44, line2.c_str());
+  u8g.drawStr(1, 64, line3.c_str());
+
 }
 
 // indice de calor
@@ -185,23 +207,22 @@ String heatIndex(double tempC, double humidity)
 
   double rv = (C * R + B) * R + A;
 
-  if (rv >= 130)
-    ret = "calor extremo";
-  else if ((rv >= 120) && (rv <= 105))
-    ret = "muito quente";
-  else if ((rv >= 90) && (rv <= 104))
-    ret = "bem quente";
-  else if ((rv >= 80) && (rv <= 89))
-    ret = "quente";
-  else if ((rv <= 88) && (rv <= 70))
-    ret = "morno";
-  else ret = "normal";
+  //  if (rv >= 130)
+  //    ret = "calor extremo";
+  //  else if ((rv >= 120) && (rv <= 105))
+  //    ret = "muito quente";
+  //  else if ((rv >= 90) && (rv <= 104))
+  //    ret = "bem quente";
+  //  else if ((rv >= 80) && (rv <= 89))
+  //    ret = "quente";
+  //  else if ((rv <= 88) && (rv <= 70))
+  //    ret = "morno";
+  //  else ret = "normal";
 
   double rvC = (((rv - 32) * 5) / 9);
-  return (String) rvC + "\xb0""C ";
+  return (String) rvC + "\xb0""C";
 
 }
-
 
 // Retorna string formatada de hora
 String getTime()
@@ -217,43 +238,41 @@ String getTime()
     timeStr = timeStr + "0";
   }
   timeStr = timeStr + (String) now.second();
+  timeStr.remove(5);
+
+  timeStr = timeStr + "   " + (String) now.day() + "/" + (String) now.month() + "/" + (String) now.year() + "   ";
+
+  switch (now.dayOfTheWeek()) {
+    case 0:
+      timeStr += "Dom";
+      break;
+    case 1:
+      timeStr +=  "Seg";
+      break;
+    case 2:
+      timeStr +=  "Ter";
+      break;
+    case 3:
+      timeStr +=  "Qua";
+      break;
+    case 4:
+      timeStr +=  "Qui";
+      break;
+    case 5:
+      timeStr +=  "Sex";
+      break;
+    case 6:
+      timeStr +=  "Sab";
+      break;
+  }
 
   return timeStr;
-}
-
-// Retorna string formatada de data
-String getDate() {
-
-  String dateStr = (String) now.day() + "/" + (String) now.month() + "/" + (String) now.year();
-  return dateStr;
 }
 
 // Retorna string formatada de dia da semana
 String getDay() {
   String dayStr = "";
-  switch (now.dayOfTheWeek()) {
-    case 0:
-      dayStr = "Domingo";
-      break;
-    case 1:
-      dayStr = "Segunda";
-      break;
-    case 2:
-      dayStr = "Ter" "\xe7" "a";
-      break;
-    case 3:
-      dayStr = "Quarta";
-      break;
-    case 4:
-      dayStr = "Quinta";
-      break;
-    case 5:
-      dayStr = "Sexta";
-      break;
-    case 6:
-      dayStr = "S" "\xe1" "bado";
-      break;
-  }
+
 
   return dayStr;
 }
@@ -310,14 +329,12 @@ int calculateForecast(double pressure) {
 
 
   if (minuteCount == 5) {
-    Serial.println("forecast: menos de 5min");
     // Avg pressure in first 5 min, value averaged from 0 to 5 min.
     pressureAvg[0] = ((pressureSamples[0][0] + pressureSamples[0][1]
                        + pressureSamples[0][2] + pressureSamples[0][3]
                        + pressureSamples[0][4] + pressureSamples[0][5]) / 6);
   }
   else if (minuteCount == 35) {
-    Serial.println("forecast: primeiros 30min");
     // Avg pressure in 30 min, value averaged from 0 to 5 min.
     pressureAvg[1] = ((pressureSamples[1][0] + pressureSamples[1][1]
                        + pressureSamples[1][2] + pressureSamples[1][3]
@@ -326,7 +343,6 @@ int calculateForecast(double pressure) {
     dP_dt = change / 5;
   }
   else if (minuteCount == 65) {
-    Serial.println("forecast: primeira hora");
     // Avg pressure at end of the hour, value averaged from 0 to 5 min.
     pressureAvg[2] = ((pressureSamples[2][0] + pressureSamples[2][1]
                        + pressureSamples[2][2] + pressureSamples[2][3]
@@ -335,7 +351,6 @@ int calculateForecast(double pressure) {
     dP_dt = change / 10;
   }
   else if (minuteCount == 95) {
-    Serial.println("forecast: uma hora e meia");
     // Avg pressure at end of the hour, value averaged from 0 to 5 min.
     pressureAvg[3] = ((pressureSamples[3][0] + pressureSamples[3][1]
                        + pressureSamples[3][2] + pressureSamples[3][3]
@@ -344,7 +359,6 @@ int calculateForecast(double pressure) {
     dP_dt = change / 15;
   }
   else if (minuteCount == 125) {
-    Serial.println("forecast: duas horas");
     // Avg pressure at end of the hour, value averaged from 0 to 5 min.
     pressureAvg[4] = ((pressureSamples[4][0] + pressureSamples[4][1]
                        + pressureSamples[4][2] + pressureSamples[4][3]
@@ -353,7 +367,6 @@ int calculateForecast(double pressure) {
     dP_dt = change / 20;
   }
   else if (minuteCount == 155) {
-    Serial.println("forecast: duas horas e meia");
     // Avg pressure at end of the hour, value averaged from 0 to 5 min.
     pressureAvg[5] = ((pressureSamples[5][0] + pressureSamples[5][1]
                        + pressureSamples[5][2] + pressureSamples[5][3]
@@ -362,7 +375,6 @@ int calculateForecast(double pressure) {
     dP_dt = change / 25;
   }
   else if (minuteCount == 185) {
-    Serial.println("forecast: 3 horas");
     // Avg pressure at end of the hour, value averaged from 0 to 5 min.
     pressureAvg[6] = ((pressureSamples[6][0] + pressureSamples[6][1]
                        + pressureSamples[6][2] + pressureSamples[6][3]
@@ -371,7 +383,6 @@ int calculateForecast(double pressure) {
     dP_dt = change / 30;
   }
   else if (minuteCount == 215) {
-    Serial.println("forecast: 3 horas e meia");
     // Avg pressure at end of the hour, value averaged from 0 to 5 min.
     pressureAvg[7] = ((pressureSamples[7][0] + pressureSamples[7][1]
                        + pressureSamples[7][2] + pressureSamples[7][3]
@@ -380,7 +391,6 @@ int calculateForecast(double pressure) {
     dP_dt = change / 35;
   }
   else if (minuteCount == 245) {
-    Serial.println("forecast: 4 horas");
     // Avg pressure at end of the hour, value averaged from 0 to 5 min.
     pressureAvg[8] = ((pressureSamples[8][0] + pressureSamples[8][1]
                        + pressureSamples[8][2] + pressureSamples[8][3]
@@ -434,4 +444,3 @@ boolean IsTimeout()
 
   return true;
 }
-
